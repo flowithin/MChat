@@ -3,4 +3,13 @@ name = "Server"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "server"
+path = "./src/server.rs"
+[[bin]]
+name = "term"
+path = "./src/term.rs"
+
+
 [dependencies]
+crossterm = "0.29.0"
