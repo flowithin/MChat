@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="MChat logo" width="600">
+  <img src="assets/logo.png" alt="MChat logo" width="60">
 </p>
 
 
