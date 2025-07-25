@@ -1,10 +1,6 @@
 # 🟦 MChat - Rust Chat App with AI Assistant
 
 
-<p align="center">
-  <img src="assets/demo.gif" alt="MChat Demo" width="600">
-</p>
-
 > A lightweight, terminal-based chat application built from scratch using Rust's `TcpStream`. Features a built-in AI assistant triggered via `@AI`.
 
 ---
@@ -14,9 +10,7 @@
 > 📽️ Check out the demo video [here](https://your-demo-video-link.com) or scroll down to view it embedded below.
 
 <p align="center">
-  <a href="https://your-demo-video-link.com">
-    <img src="https://img.youtube.com/vi/YOUR_VIDEO_ID/0.jpg" alt="MChat Demo" width="600">
-  </a>
+  <img src="assets/demo.gif" alt="MChat Demo" width="600">
 </p>
 
 ---
