@@ -1,3 +1,10 @@
+<p align="center">
+  <img src="assets/logo.png" alt="MChat logo" width="600">
+</p>
+
+
+
+---
 # 🟦 MChat - Rust Chat App with AI Assistant
 
 
@@ -94,9 +101,7 @@ Pull requests are welcome! For major changes, please open an issue first to disc
 
 ## 📬 Contact
 
-Feel free to reach out via issues or email me at [your-email@umich.edu](mailto:your-email@umich.edu).
-
-```
+Feel free to reach out via issues or email me at [jtwuuuuu@umich.edu](mailto:your-email@umich.edu).
 
 ---
 
@@ -106,5 +111,3 @@ Let me know if you'd like:
 - Embedded YouTube demo markdown if you're hosting it there.
 - The `Cargo.toml` file and module layout to match this documentation.
 
-Would you like me to generate a clean **UMich-themed logo** with a chat bubble and "MChat" branding for you now?
-```
