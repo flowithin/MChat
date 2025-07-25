@@ -1,5 +1,6 @@
 use std::{
-    io::{self, stdout, Error, Write},
+    fs::File,
+    io::{self, stdout, Error, Read, Write},
     string,
     thread::sleep,
     time::Duration,
@@ -18,13 +19,50 @@ use crossterm::{
     terminal::{self, disable_raw_mode, enable_raw_mode, window_size, Clear},
     ExecutableCommand, QueueableCommand,
 };
+struct Rect {
+    x: u16,
+    y: u16,
+    w: u16,
+    h: u16,
+}
 
+fn chat_window(stdout: &mut impl Write, chat: &[String], boundary: &Rect) {
+    //the linenum
+    let n = chat.len();
+    let m = n.checked_sub(boundary.h as usize).unwrap_or(0);
+    for (dy, line) in chat.iter().skip(m).enumerate() {
+        stdout
+            .queue(MoveTo(boundary.x, boundary.y + dy as u16))
+            .unwrap();
+        stdout.write(line.as_bytes()).unwrap();
+    }
+}
 fn main() -> io::Result<()> {
     // with function
     io::stdout().execute(Clear(crossterm::terminal::ClearType::All));
-    io::stdout().execute(MoveTo(11, 11))?;
+    io::stdout().execute(MoveTo(21, 11))?;
+    let mut buf: [u8; 1024] = [0; 1024];
+
+    io::stdout().write({
+        File::open("mchat.logo")?.read(&mut buf)?;
+        &buf
+    });
     //io::stdout().execute(RestorePosition)?;
+
+    // Wait for Enter key
     enable_raw_mode();
+    loop {
+        if poll(Duration::from_millis(50))? {
+            if let Event::Key(KeyEvent {
+                code: KeyCode::Enter,
+                ..
+            }) = read()?
+            {
+                break;
+            }
+        }
+        // Optionally update screen or animate loading dots here
+    }
     print_events();
     io::stdout().execute(Clear(crossterm::terminal::ClearType::All));
     io::stdout().execute(MoveTo(0, 0))?;
@@ -32,9 +70,9 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn print_events() -> std::io::Result<()> {
+pub fn print_events() -> std::io::Result<()> {
     let mut prompt = String::new();
-    let mut chat = String::new();
+    let mut chat: Vec<String> = vec![];
     loop {
         let ws: terminal::WindowSize = window_size().unwrap();
         // `read()` blocks until an `Event` is available
@@ -49,7 +87,8 @@ fn print_events() -> std::io::Result<()> {
                     state,
                 }) => match code {
                     KeyCode::Enter => {
-                        chat.push_str(&(prompt.clone() + &"\n\r".repeat(2)));
+                        let prompt_ = prompt.clone();
+                        chat.push(prompt_);
                         prompt.clear();
                     }
                     KeyCode::Char(ch) => {
@@ -58,6 +97,9 @@ fn print_events() -> std::io::Result<()> {
                         } else {
                             prompt.push(ch);
                         }
+                    }
+                    KeyCode::Backspace => {
+                        prompt.pop();
                     }
                     _ => {}
                 },
@@ -73,7 +115,13 @@ fn print_events() -> std::io::Result<()> {
         stdout().queue(Print("═".repeat((ws.columns) as usize)));
 
         stdout().queue(MoveTo(0, 0));
-        stdout().queue(Print(chat.clone()));
+        let boundary = Rect {
+            x: 0,
+            y: 0,
+            w: ws.columns,
+            h: ws.rows - 2,
+        };
+        chat_window(&mut stdout(), &chat, &boundary);
 
         stdout().queue(MoveTo(0, ws.rows - 1));
         stdout().queue(Print(prompt.clone()));

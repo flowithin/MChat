@@ -1,4 +1,8 @@
+use crate::llm::Llm;
+use rand::distr::SampleString;
+use rand::{self, distr, prelude::*};
 use std::collections::HashMap;
+use std::env;
 use std::fmt;
 use std::fs::{self};
 use std::io::{prelude::*, BufReader};
@@ -8,11 +12,14 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
 use Server::ThreadPool;
+pub mod llm;
+
 struct Sensitive<T> {
     inner: T,
 }
 
 const ChildMode: bool = true;
+const tryc: i32 = 3;
 impl<T: fmt::Display> fmt::Display for Sensitive<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if ChildMode == true {
@@ -22,7 +29,7 @@ impl<T: fmt::Display> fmt::Display for Sensitive<T> {
         }
     }
 }
-
+#[derive(Debug)]
 enum message {
     Connected {
         ip: SocketAddr,
@@ -49,8 +56,60 @@ struct Client {
     last_msg_time: SystemTime,
     strike_count: u32,
 }
-fn client(stream: Arc<TcpStream>, messages: Sender<message>) -> () {
+
+struct AuthError(String);
+fn read_to(stream: Arc<TcpStream>, c: u8, buf: &mut [u8]) -> Result<(), usize> {
+    let mut cnt = 0;
+    loop {
+        let mut buf_c: [u8; 1] = [0];
+        stream.as_ref().read_exact(&mut buf_c).unwrap();
+        println!("{:?}", buf_c.clone());
+        buf[cnt] = buf_c[0];
+        if buf[cnt] == c {
+            break;
+        }
+        cnt += 1;
+        if cnt >= buf.len() {
+            return Err(cnt);
+        }
+    }
+    Ok(())
+}
+fn authorize(stream: Arc<TcpStream>, token: &str) -> Result<bool, AuthError> {
+    let mut cnt: i32 = 0;
+    loop {
+        let mut rtoken = vec![0; 17];
+        //read_to(stream.clone(), '\r' as u8, &mut rtoken).unwrap();
+        stream.as_ref().read(&mut rtoken);
+        println!(
+            "your: {}, real: {}",
+            String::from_utf8(rtoken.to_vec()).unwrap(),
+            token
+        );
+        if rtoken[0..16] != *token.as_bytes() {
+            if cnt < tryc {
+                stream.as_ref().write("incorrect\n".as_bytes());
+                cnt += 1;
+                let mut tmp = [0; 64];
+                println!("inin here");
+                //stream.as_ref().read(&mut tmp);
+                continue;
+            }
+            println!("here");
+            stream.shutdown(Shutdown::Both);
+            return Err(AuthError("authorization failed".to_string()));
+        }
+        let mut buf_c = [0; 1];
+        //stream.as_ref().read_exact(&mut buf_c);
+        return Ok(true);
+    }
+}
+fn client<'a>(stream: Arc<TcpStream>, messages: Sender<message>, token: &'a str) {
     let ip: SocketAddr = stream.as_ref().peer_addr().unwrap();
+    if !authorize(stream.clone(), &token).unwrap_or(false) {
+        println!("in here");
+        return;
+    }
     let _ = messages.send(message::Connected {
         ip,
         stream: stream.clone(),
@@ -61,12 +120,11 @@ fn client(stream: Arc<TcpStream>, messages: Sender<message>) -> () {
         //why as_ref? maybe bc now stream is a pointer
         let n = stream.as_ref().read(&mut buffer).unwrap();
         //let ip = stream.peer_addr().unwrap();
-        let message_content = std::str::from_utf8(&buffer).unwrap();
         if n > 0 {
             messages
                 .send(message::New_message {
                     ip,
-                    str: message_content.to_string(),
+                    str: String::from_utf8(buffer[0..n].to_vec()).unwrap(),
                 })
                 .map_err(|err| {
                     eprintln!("cannot send message ERROR : {err}");
@@ -91,8 +149,15 @@ fn Server(messages: Receiver<message>) -> () {
     let BAN_LIMIT: Duration = Duration::from_secs_f32(10.0 * 60.0);
     let RATE_LIMIT: Duration = Duration::from_secs_f32(1.0);
     let STRIKE_LIMIT: u32 = 10;
+    let llm = Llm::new(
+        "qwen-plus",
+        &env::var("DASHSCOPE_API_KEY").unwrap_or_else(|_| "YOUR_DASHSCOPE_API_KEY".to_string()),
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    );
     loop {
-        match messages.recv().unwrap() {
+        let message = messages.recv().unwrap();
+        println!("message: {:?}", message);
+        match message {
             message::Connected { ip, stream } => {
                 clients.insert(
                     ip,
@@ -118,6 +183,7 @@ fn Server(messages: Receiver<message>) -> () {
                 let mut update = || {
                     if let Some(client) = clients.get(&ip) {
                         let mut client = client.clone();
+                        //rate limit
                         if now.duration_since(client.last_msg_time).unwrap() < RATE_LIMIT {
                             client.strike_count += 1;
                             if client.strike_count > STRIKE_LIMIT {
@@ -140,7 +206,7 @@ fn Server(messages: Receiver<message>) -> () {
                         None
                     }
                 };
-                //take care of banned mfs
+                //take care of banned ips
                 let stream = update().unwrap();
                 if let Some(Banned { isbanned, time }) = ban_list.get(&ip) {
                     if *isbanned && now.duration_since(*time).unwrap() <= BAN_LIMIT {
@@ -158,12 +224,37 @@ fn Server(messages: Receiver<message>) -> () {
                         );
                     }
                 }
-                clients.iter().for_each(|(_ip, Client { stream, .. })| {
-                    if ip != *_ip {
-                        let mut str_out = str.to_string();
-                        stream.as_ref().write(str_out.as_bytes());
+                //send to clients' end
+                let send_bytes = |str: &str, inc_self: bool| {
+                    clients.iter().for_each(|(_ip, Client { stream, .. })| {
+                        if ip != *_ip || inc_self {
+                            stream.as_ref().write(str.as_bytes());
+                        }
+                    })
+                };
+                send_bytes(&str, false);
+
+                let (sender, receiver) = channel();
+                match str.chars().nth(0) {
+                    Some('@') => {
+                        println!("here, {:?}", str.split(' ').collect::<Vec<_>>()[0]);
+
+                        if let Some((pre, suf)) = str
+                            .split_once(' ')
+                            .map(|(pre, suf)| (pre.to_string(), suf.to_string()))
+                        {
+                            if pre == "@AI" {
+                                println!("here");
+                                thread::spawn(move || Llm::llm_get(&suf, sender).unwrap());
+                                let llm_message = receiver.recv().unwrap();
+                                println!("llm_message: {:?}", llm_message);
+                                send_bytes(&llm_message, true);
+                            }
+                        }
                     }
-                });
+
+                    _ => {}
+                }
             }
             message::unConnected { ip, stream } => {
                 println!("{:?}, got disconnected", ip.to_string());
@@ -180,13 +271,16 @@ fn main() {
     let threadpool = ThreadPool::new(thread_cnt);
     let (sender, receiver) = channel();
     ThreadPool::execute(&threadpool, || Server(receiver));
+    let mut rng = rand::rng();
+    let token = distr::Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+    println!("{}", token);
     for stream in listener.incoming() {
-        //stream is multiple ports that accessed the listening socket
+        let value = token.clone();
         let stream = stream.unwrap();
         //thread::spawn(|| handle_connection(stream));
         let sender = sender.clone();
         let stream = Arc::new(stream);
-        ThreadPool::execute(&threadpool, || client(stream, sender));
+        ThreadPool::execute(&threadpool, move || client(stream, sender, &value));
     }
     //let stream_: TcpStream = listener.incoming().();
     //let (sender_message, client_message) = std::sync::mpsc::channel();
