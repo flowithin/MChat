@@ -1,4 +1,3 @@
-````markdown
 # 🟦 MChat - Rust Chat App with AI Assistant
 
 
