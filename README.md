@@ -7,7 +7,6 @@
 
 ## 🎥 Demo
 
-> 📽️ Check out the demo video [here](https://your-demo-video-link.com) or scroll down to view it embedded below.
 
 <p align="center">
   <img src="assets/demo.gif" alt="MChat Demo" width="600">
